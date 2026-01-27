@@ -213,6 +213,12 @@ extension Window {
 // The function is private because it's unsafe. It leaves the window in unbound state
 @MainActor
 private func unbindAndGetBindingDataForNewWindow(_ windowId: UInt32, _ macApp: MacApp, _ workspace: Workspace, window: Window?) async throws -> BindingData {
+    // Pre-scan: check if any on-window-detected callback would make this window floating/sticky
+    // If so, bind as floating directly to preserve original window size
+    if window == nil && shouldStartAsFloating(macApp, workspace) {
+        return BindingData(parent: workspace, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
+    }
+
     let windowLevel = getWindowLevel(for: windowId)
     return switch try await macApp.getAxUiElementWindowType(windowId, windowLevel) {
         case .popup: BindingData(parent: macosPopupWindowsContainer, adaptiveWeight: WEIGHT_AUTO, index: INDEX_BIND_LAST)
@@ -283,4 +289,58 @@ extension WindowDetectedCallback {
         }
         return true
     }
+
+    /// Check if callback matches using only synchronous matchers (skips window-title-regex-substring)
+    /// Used for pre-scan to determine initial binding before window is created
+    @MainActor
+    func matchesSyncOnly(_ macApp: MacApp, _ workspace: Workspace) -> Bool {
+        if let startupMatcher = matcher.duringAeroSpaceStartup, startupMatcher != isStartup {
+            return false
+        }
+        // Skip window-title-regex-substring - requires async AX call
+        if matcher.windowTitleRegexSubstring != nil {
+            return false
+        }
+        if let appId = matcher.appId, appId != macApp.rawAppBundleId {
+            return false
+        }
+        if let regex = matcher.appNameRegexSubstring, !(macApp.name ?? "").contains(regex) {
+            return false
+        }
+        if let workspaceName = matcher.workspace, workspaceName != workspace.name {
+            return false
+        }
+        return true
+    }
+
+    /// Check if any command in this callback would set layout to floating or sticky
+    func wouldMakeFloatingOrSticky() -> Bool {
+        for command in run {
+            if let layoutCmd = command as? LayoutCommand {
+                for desc in layoutCmd.args.toggleBetween.val {
+                    if desc == .floating || desc == .sticky {
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+}
+
+/// Pre-scan on-window-detected callbacks to determine if window should start as floating.
+/// Only uses synchronous matchers for performance (skips window-title-regex-substring).
+@MainActor
+private func shouldStartAsFloating(_ macApp: MacApp, _ workspace: Workspace) -> Bool {
+    for callback in config.onWindowDetected {
+        if callback.matchesSyncOnly(macApp, workspace) {
+            if callback.wouldMakeFloatingOrSticky() {
+                return true
+            }
+            if !callback.checkFurtherCallbacks {
+                return false  // Stop checking further callbacks
+            }
+        }
+    }
+    return false
 }
