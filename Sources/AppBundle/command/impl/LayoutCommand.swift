@@ -60,7 +60,7 @@ struct LayoutCommand: Command {
                         return io.err("Can't make macOS minimized, fullscreen, or hidden app windows sticky")
                     case .tilingContainer:
                         // Convert to floating first, then make sticky
-                        window.lastFloatingSize = try await window.getAxSize() ?? window.lastFloatingSize
+                        // Use lastFloatingSize (original size from window creation), not current tiled size
                         let workspace = target.workspace
                         window.bindAsFloatingWindow(to: workspace)
                         if let size = window.lastFloatingSize { window.setAxFrame(nil, size) }
