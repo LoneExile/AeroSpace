@@ -56,15 +56,15 @@ jobs:
         if: failure()
         run: if test -f ./.release/xcodebuild.log; then cat ./.release/xcodebuild.log; fi
 
-      - name: Locate artifact
+      - name: Locate artifact (renamed to stable filename)
         id: zip
         run: |
-          file=$(ls ./.release/AeroSpace-v*.zip | head -n1)
-          echo "path=$file" >>"$GITHUB_OUTPUT"
-          echo "name=$(basename "$file")" >>"$GITHUB_OUTPUT"
-          sha256=$(shasum -a 256 "$file" | awk '{print $1}')
-          echo "sha256=$sha256" >>"$GITHUB_OUTPUT"
-          echo "sri=sha256-$(shasum -a 256 "$file" | awk '{print $1}' | xxd -r -p | base64)" >>"$GITHUB_OUTPUT"
+          src=$(ls ./.release/AeroSpace-v*.zip | head -n1)
+          dst=./.release/AeroSpace.zip
+          cp "$src" "$dst"
+          echo "path=$dst" >>"$GITHUB_OUTPUT"
+          sri=sha256-$(shasum -a 256 "$dst" | awk '{print $1}' | xxd -r -p | base64)
+          echo "sri=$sri" >>"$GITHUB_OUTPUT"
 
       - name: Publish rolling release
         env:
@@ -76,7 +76,7 @@ jobs:
             --title "sticky-windows rolling (${{ steps.ver.outputs.version }})" \
             --notes "Rolling build of sticky-windows. Commit: ${{ github.sha }}" \
             --target sticky-windows \
-            "${{ steps.zip.outputs.path }}#AeroSpace.zip"
+            "${{ steps.zip.outputs.path }}"
 
       - name: Update nix-release-meta branch
         env:
