@@ -1,0 +1,59 @@
+name: Sync upstream into sticky-windows
+
+on:
+  schedule:
+    - cron: '0 4 * * *'   # daily 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sticky-windows
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git
+        run: |
+          git config user.email "sync-bot@users.noreply.github.com"
+          git config user.name "sync-bot"
+
+      - name: Merge upstream/main
+        id: merge
+        run: |
+          git remote add upstream https://github.com/nikitabobko/AeroSpace.git
+          git fetch upstream main
+          if git merge upstream/main --no-edit; then
+            echo "result=clean" >>"$GITHUB_OUTPUT"
+          else
+            git merge --abort
+            echo "result=conflict" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Push clean merge
+        if: steps.merge.outputs.result == 'clean'
+        run: git push origin sticky-windows
+
+      - name: Open conflict PR
+        if: steps.merge.outputs.result == 'conflict'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="sync/upstream-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH"
+          # Commit a conflict marker so the PR has something to diff
+          echo "Upstream sync conflict at $(date -u)" > .SYNC-CONFLICT
+          git add .SYNC-CONFLICT
+          git commit -m "chore: upstream sync needs manual resolution"
+          git push origin "$BRANCH"
+          gh pr create \
+            --base sticky-windows \
+            --head "$BRANCH" \
+            --title "Upstream sync needs manual resolution" \
+            --body "Daily sync hit conflicts merging \`upstream/main\` into \`sticky-windows\`. Resolve locally: \`git fetch upstream && git checkout sticky-windows && git merge upstream/main\`."
