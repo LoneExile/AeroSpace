@@ -1,0 +1,109 @@
+name: Build & release sticky-windows
+
+on:
+  push:
+    branches: [sticky-windows]
+    paths-ignore:
+      - '.github/workflows/sync-upstream.yml'
+      - 'README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-sticky
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: sticky-windows
+          fetch-depth: 0
+
+      - name: Select Xcode
+        run: ./.github/gh-actions-runner-xcode-select.sh
+
+      - name: Install build deps
+        run: brew install bash fish xcbeautify swiftly
+
+      - name: Install Swift toolchain
+        run: swiftly init --skip-install --assume-yes --verbose && swiftly install
+
+      - name: Compute build version
+        id: ver
+        run: |
+          short=$(git rev-parse --short=8 HEAD)
+          ts=$(date -u +%Y%m%d%H%M%S)
+          echo "version=sticky-${ts}-${short}" >>"$GITHUB_OUTPUT"
+          echo "sha=${short}" >>"$GITHUB_OUTPUT"
+
+      - name: Run generators (commit locally so integrity check passes)
+        run: |
+          ./generate.sh
+          git config user.email "ci@users.noreply.github.com"
+          git config user.name "ci"
+          git add -A
+          git diff --cached --quiet || git commit -m "ci: regenerate"
+
+      - name: Build release (ad-hoc signed)
+        run: ./build-release.sh --build-version "${{ steps.ver.outputs.version }}" --codesign-identity -
+
+      - name: Show build log on failure
+        if: failure()
+        run: if test -f ./.release/xcodebuild.log; then cat ./.release/xcodebuild.log; fi
+
+      - name: Locate artifact
+        id: zip
+        run: |
+          file=$(ls ./.release/AeroSpace-v*.zip | head -n1)
+          echo "path=$file" >>"$GITHUB_OUTPUT"
+          echo "name=$(basename "$file")" >>"$GITHUB_OUTPUT"
+          sha256=$(shasum -a 256 "$file" | awk '{print $1}')
+          echo "sha256=$sha256" >>"$GITHUB_OUTPUT"
+          echo "sri=sha256-$(shasum -a 256 "$file" | awk '{print $1}' | xxd -r -p | base64)" >>"$GITHUB_OUTPUT"
+
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag=sticky-rolling
+          gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "$tag" \
+            --title "sticky-windows rolling (${{ steps.ver.outputs.version }})" \
+            --notes "Rolling build of sticky-windows. Commit: ${{ github.sha }}" \
+            --target sticky-windows \
+            "${{ steps.zip.outputs.path }}#AeroSpace.zip"
+
+      - name: Update nix-release-meta branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Fresh orphan checkout of nix-release-meta branch
+          work=$(mktemp -d)
+          cd "$work"
+          git clone --depth=1 --branch=nix-release-meta \
+            "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" repo 2>/dev/null || {
+            git clone "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" repo
+            cd repo
+            git checkout --orphan nix-release-meta
+            git rm -rf . 2>/dev/null || true
+            cd ..
+          }
+          cd repo
+          cat > release.nix <<NIX
+          {
+            url = "https://github.com/${{ github.repository }}/releases/download/sticky-rolling/AeroSpace.zip";
+            sha256 = "${{ steps.zip.outputs.sri }}";
+            commit = "${{ github.sha }}";
+            version = "${{ steps.ver.outputs.version }}";
+          }
+          NIX
+          git config user.email "ci@users.noreply.github.com"
+          git config user.name "ci"
+          git add release.nix
+          git commit -m "release: ${{ steps.ver.outputs.version }}" || exit 0
+          git push origin nix-release-meta
