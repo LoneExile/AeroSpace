@@ -63,7 +63,17 @@ jobs:
           dst=./.release/AeroSpace.zip
           cp "$src" "$dst"
           echo "path=$dst" >>"$GITHUB_OUTPUT"
-          sri=sha256-$(shasum -a 256 "$dst" | awk '{print $1}' | xxd -r -p | base64)
+
+      - name: Install Nix (for fetchzip-compatible hash)
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Compute fetchzip-compatible SRI hash
+        id: hash
+        run: |
+          # fetchzip hashes the UNPACKED directory, not the zip bytes.
+          tmp=$(mktemp -d)
+          unzip -q "${{ steps.zip.outputs.path }}" -d "$tmp"
+          sri=$(nix --extra-experimental-features "nix-command" hash path --type sha256 --sri "$tmp")
           echo "sri=$sri" >>"$GITHUB_OUTPUT"
 
       - name: Publish rolling release
@@ -97,7 +107,7 @@ jobs:
           cat > release.nix <<NIX
           {
             url = "https://github.com/${{ github.repository }}/releases/download/sticky-rolling/AeroSpace.zip";
-            sha256 = "${{ steps.zip.outputs.sri }}";
+            sha256 = "${{ steps.hash.outputs.sri }}";
             commit = "${{ github.sha }}";
             version = "${{ steps.ver.outputs.version }}";
           }
