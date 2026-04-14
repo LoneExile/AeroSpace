@@ -67,8 +67,9 @@ struct LayoutCommand: Command {
                         window.isSticky = true
                         return true
                     case .workspace:
-                        // Already floating, toggle sticky
-                        window.isSticky.toggle()
+                        // Already floating — set sticky (idempotent for on-window-detected).
+                        // To un-sticky, use `layout floating` or `layout tiling` (both clear isSticky).
+                        window.isSticky = true
                         return true
                 }
         }
