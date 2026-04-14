@@ -62,10 +62,16 @@ struct FrozenWorkspace: Sendable {
             .singleOrNil()?
             .setActiveWorkspace(workspace)
         for frozenWindow in frozenWorkspace.floatingWindows {
-            MacWindow.get(byId: frozenWindow.id)?.bindAsFloatingWindow(to: workspace)
+            if let w = MacWindow.get(byId: frozenWindow.id) {
+                w.bindAsFloatingWindow(to: workspace)
+                w.isSticky = frozenWindow.isSticky
+            }
         }
         for frozenWindow in frozenWorkspace.macosUnconventionalWindows { // Will get fixed by normalizations
-            MacWindow.get(byId: frozenWindow.id)?.bindAsFloatingWindow(to: workspace)
+            if let w = MacWindow.get(byId: frozenWindow.id) {
+                w.bindAsFloatingWindow(to: workspace)
+                w.isSticky = frozenWindow.isSticky
+            }
         }
         let prevRoot = workspace.rootTilingContainer // Save prevRoot into a variable to avoid it being garbage collected earlier than needed
         let potentialOrphans = prevRoot.allLeafWindowsRecursive
