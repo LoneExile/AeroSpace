@@ -1,6 +1,6 @@
 {
   url = "https://github.com/LoneExile/AeroSpace/releases/download/sticky-rolling/AeroSpace.zip";
-  sha256 = "sha256-Z1Anr9u5vkfmV3gthgz9HE2jKeMtTJsJ6f1jJ6l1ArY=";
-  commit = "b21622b8ee8fc22d1a8d82b14d680606a9efbf4c";
-  version = "sticky-20260414013228-b21622b8";
+  sha256 = "sha256-q0JaiyBVwYXtqTB6EWmCZ5LP7W2PWyZK/VfH+XCFbhE=";
+  commit = "726adb5eb4bbfb40a3152c7bde837c3a1f51c2b5";
+  version = "sticky-20260414015602-726adb5e";
 }
