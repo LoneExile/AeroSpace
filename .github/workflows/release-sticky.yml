@@ -72,12 +72,19 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag=sticky-rolling
-          gh release delete "$tag" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "$tag" \
+          # Ensure the release exists at this tag (idempotent). Update the
+          # asset in place via --clobber — deleting + recreating creates an
+          # untagged placeholder that breaks download URLs.
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" \
+              --title "sticky-windows rolling" \
+              --notes "Rolling build of sticky-windows" \
+              --target sticky-windows
+          fi
+          gh release edit "$tag" \
             --title "sticky-windows rolling (${{ steps.ver.outputs.version }})" \
-            --notes "Rolling build of sticky-windows. Commit: ${{ github.sha }}" \
-            --target sticky-windows \
-            "${{ steps.zip.outputs.path }}"
+            --notes "Rolling build. Commit: ${{ github.sha }}"
+          gh release upload "$tag" "${{ steps.zip.outputs.path }}" --clobber
 
       - name: Update nix-release-meta branch
         env:
