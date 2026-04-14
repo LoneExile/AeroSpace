@@ -56,24 +56,15 @@ jobs:
         if: failure()
         run: if test -f ./.release/xcodebuild.log; then cat ./.release/xcodebuild.log; fi
 
-      - name: Locate artifact (renamed to stable filename)
+      - name: Locate artifact and compute raw-bytes SRI
         id: zip
         run: |
           src=$(ls ./.release/AeroSpace-v*.zip | head -n1)
           dst=./.release/AeroSpace.zip
           cp "$src" "$dst"
           echo "path=$dst" >>"$GITHUB_OUTPUT"
-
-      - name: Install Nix (for fetchzip-compatible hash)
-        uses: DeterminateSystems/nix-installer-action@main
-
-      - name: Compute fetchzip-compatible SRI hash
-        id: hash
-        run: |
-          # fetchzip hashes the UNPACKED directory, not the zip bytes.
-          tmp=$(mktemp -d)
-          unzip -q "${{ steps.zip.outputs.path }}" -d "$tmp"
-          sri=$(nix --extra-experimental-features "nix-command" hash path --type sha256 --sri "$tmp")
+          # fetchurl hashes raw bytes — deterministic, no unzip-impl variance
+          sri=sha256-$(shasum -a 256 "$dst" | awk '{print $1}' | xxd -r -p | base64)
           echo "sri=$sri" >>"$GITHUB_OUTPUT"
 
       - name: Publish rolling release
@@ -107,7 +98,7 @@ jobs:
           cat > release.nix <<NIX
           {
             url = "https://github.com/${{ github.repository }}/releases/download/sticky-rolling/AeroSpace.zip";
-            sha256 = "${{ steps.hash.outputs.sri }}";
+            sha256 = "${{ steps.zip.outputs.sri }}";
             commit = "${{ github.sha }}";
             version = "${{ steps.ver.outputs.version }}";
           }
